@@ -32,7 +32,7 @@ Designed to be lightweight, easy to use and easy to understand
 
 Generated files are saved in the "Output" folder.
 
-<img src="assets/RemReaderScreenShot.PNG" width="512" alt="RemReader Screenshot">
+<img src="assets/RemReaderScreenShot.PNG" width="1080" alt="RemReader Screenshot">
 
 **Rem is best girl 💙**
 

@@ -24,7 +24,9 @@ def save_audio_file(
     tts,
     audio,
     output_file: str | Path,
-    output_format: str
+    output_format: str,
+    metadata: dict | None = None,
+    cover_image: str | Path | None = None
 ):
     """
     Export generated RemReader audio to the requested file type.
@@ -47,6 +49,19 @@ def save_audio_file(
         .lstrip(".")
     )
 
+    if metadata is None:
+        metadata = {}
+
+    if cover_image:
+        cover_image = Path(
+            cover_image
+        )
+
+        if not cover_image.exists():
+            raise FileNotFoundError(
+                f"Cover image does not exist: {cover_image}"
+            )
+
     if output_format not in SUPPORTED_AUDIO_FORMATS:
         raise ValueError(
             f"Unsupported output format: {output_format}. "
@@ -63,7 +78,14 @@ def save_audio_file(
     # Native WAV output
     # -------------------------
 
-    if output_format == "wav":
+    # If there is no metadata or cover image, keep the fast native
+    # WAV path. WAV artwork support is inconsistent between players,
+    # so cover art is primarily intended for MP3/M4A/FLAC/OGG.
+    if (
+        output_format == "wav"
+        and not metadata
+        and not cover_image
+    ):
 
         tts.save_audio(
             audio,
@@ -73,7 +95,7 @@ def save_audio_file(
         return output_file
 
     # -------------------------
-    # FFmpeg formats
+    # FFmpeg formats / metadata
     # -------------------------
 
     ffmpeg_path = shutil.which(
@@ -109,6 +131,23 @@ def save_audio_file(
             str(temp_wav),
         ]
 
+        # Add cover artwork as a second FFmpeg input.
+        if (
+            cover_image
+            and output_format != "wav"
+        ):
+
+            command.extend(
+                [
+                    "-i",
+                    str(cover_image),
+                    "-map",
+                    "0:a",
+                    "-map",
+                    "1:v",
+                ]
+            )
+
         # -------------------------
         # Format-specific settings
         # -------------------------
@@ -124,6 +163,20 @@ def save_audio_file(
                 ]
             )
 
+            if cover_image:
+                command.extend(
+                    [
+                        "-codec:v",
+                        "mjpeg",
+                        "-id3v2_version",
+                        "3",
+                        "-metadata:s:v",
+                        "title=Album cover",
+                        "-metadata:s:v",
+                        "comment=Cover (front)",
+                    ]
+                )
+
         elif output_format == "m4a":
 
             command.extend(
@@ -134,6 +187,16 @@ def save_audio_file(
                     "128k",
                 ]
             )
+
+            if cover_image:
+                command.extend(
+                    [
+                        "-codec:v",
+                        "mjpeg",
+                        "-disposition:v",
+                        "attached_pic",
+                    ]
+                )
 
         elif output_format == "ogg":
 
@@ -146,8 +209,73 @@ def save_audio_file(
                 ]
             )
 
-        # FFmpeg automatically selects FLAC when the output
-        # extension is .flac, so no extra codec option is needed.
+            # Artwork support in OGG players is inconsistent.
+            # Audio and text metadata still export normally.
+            if cover_image:
+                command.extend(
+                    [
+                        "-vn",
+                    ]
+                )
+
+        elif output_format == "flac":
+
+            if cover_image:
+                command.extend(
+                    [
+                        "-codec:v",
+                        "copy",
+                        "-disposition:v",
+                        "attached_pic",
+                    ]
+                )
+
+        elif output_format == "wav":
+
+            # Re-encode the temporary WAV so text metadata can be written.
+            command.extend(
+                [
+                    "-codec:a",
+                    "pcm_s16le",
+                    "-vn",
+                ]
+            )
+
+        # -------------------------
+        # Text metadata
+        # -------------------------
+
+        metadata_map = {
+            "title": "title",
+            "album": "album",
+            "artist": "artist",
+            "track": "track",
+            "genre": "genre",
+            "comment": "comment",
+        }
+
+        for key, ffmpeg_key in metadata_map.items():
+
+            value = metadata.get(
+                key
+            )
+
+            if value is None:
+                continue
+
+            value = str(
+                value
+            ).strip()
+
+            if not value:
+                continue
+
+            command.extend(
+                [
+                    "-metadata",
+                    f"{ffmpeg_key}={value}",
+                ]
+            )
 
         command.append(
             str(output_file)

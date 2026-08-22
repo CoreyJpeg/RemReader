@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 
 from PySide6.QtCore import (
     QObject,
@@ -121,6 +121,7 @@ class GenerationWorker(QObject):
         options,
         voice,
         output_format,
+        cover_image=None,
         debug_enabled=False
     ):
         super().__init__()
@@ -131,6 +132,7 @@ class GenerationWorker(QObject):
         self.options = options
         self.voice = voice
         self.output_format = output_format
+        self.cover_image = cover_image
         self.debug_enabled = debug_enabled
 
 
@@ -149,7 +151,8 @@ class GenerationWorker(QObject):
                 voice=self.voice,
                 progress_callback=self.report_progress,
                 debug_enabled=self.debug_enabled,
-                output_format=self.output_format
+                output_format=self.output_format,
+                cover_image=self.cover_image
             )
 
             self.finished.emit(
@@ -813,6 +816,48 @@ class RemReaderWindow(QWidget):
             self.output_format_select
         )
 
+        # -------------------------
+        # Optional cover image
+        # -------------------------
+
+        cover_label = QLabel(
+            "Cover image"
+        )
+
+        options_layout.addWidget(
+            cover_label
+        )
+
+        cover_layout = QHBoxLayout()
+
+        self.cover_input = QLineEdit()
+
+        self.cover_input.setPlaceholderText(
+            "Optional cover image..."
+        )
+
+        self.cover_browse_button = QPushButton(
+            "Browse"
+        )
+
+        self.cover_browse_button.clicked.connect(
+            self.browse_cover_image
+        )
+
+        cover_layout.addWidget(
+            self.cover_input,
+            7
+        )
+
+        cover_layout.addWidget(
+            self.cover_browse_button,
+            1
+        )
+
+        options_layout.addLayout(
+            cover_layout
+        )
+
         self.debug_logs = QCheckBox(
             "Generate debug logs"
         )
@@ -1311,6 +1356,29 @@ class RemReaderWindow(QWidget):
         )
 
 
+    def browse_cover_image(self):
+        """
+        Ask the user to select optional cover artwork.
+        """
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select cover image",
+            "",
+            (
+                "Image Files (*.jpg *.jpeg *.png *.webp);;"
+                "All Files (*)"
+            )
+        )
+
+        if not file_path:
+            return
+
+        self.cover_input.setText(
+            file_path
+        )
+
+
     # ========================================================
     # Story Loading
     # ========================================================
@@ -1544,6 +1612,11 @@ class RemReaderWindow(QWidget):
             .lower()
         )
 
+        cover_image = (
+            self.cover_input.text().strip()
+            or None
+        )
+
         input_path = (
             self.file_input.text()
         )
@@ -1588,6 +1661,7 @@ class RemReaderWindow(QWidget):
             options=options,
             voice=voice,
             output_format=output_format,
+            cover_image=cover_image,
             debug_enabled=self.debug_logs.isChecked()
         )
 

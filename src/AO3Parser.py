@@ -112,3 +112,41 @@ def get_story_title(file_path: str) -> str:
         " ",
         strip=True
     )
+
+def get_story_author(file_path: str) -> str:
+    """
+    Get the AO3 work author.
+
+    Downloaded AO3 works normally store the author in the preface
+    byline. Several selectors are tried so older/newer downloads
+    still have a sensible fallback.
+    """
+
+    soup = load_html(
+        file_path
+    )
+
+    selectors = [
+        "#preface .byline a[rel='author']",
+        "#preface .byline a",
+        ".preface .byline a[rel='author']",
+        ".preface .byline a",
+    ]
+
+    for selector in selectors:
+
+        author_element = soup.select_one(
+            selector
+        )
+
+        if author_element is not None:
+
+            author = author_element.get_text(
+                " ",
+                strip=True
+            )
+
+            if author:
+                return author
+
+    return "Unknown Author"

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 from PySide6.QtCore import (
     QObject,
@@ -120,6 +120,7 @@ class GenerationWorker(QObject):
         output_folder,
         options,
         voice,
+        output_format,
         debug_enabled=False
     ):
         super().__init__()
@@ -129,6 +130,7 @@ class GenerationWorker(QObject):
         self.output_folder = output_folder
         self.options = options
         self.voice = voice
+        self.output_format = output_format
         self.debug_enabled = debug_enabled
 
 
@@ -146,7 +148,8 @@ class GenerationWorker(QObject):
                 options=self.options,
                 voice=self.voice,
                 progress_callback=self.report_progress,
-                debug_enabled=self.debug_enabled
+                debug_enabled=self.debug_enabled,
+                output_format=self.output_format
             )
 
             self.finished.emit(
@@ -370,7 +373,7 @@ class RemReaderWindow(QWidget):
         panel_layout = QVBoxLayout()
 
         panel_layout.setSpacing(
-            12
+            10
         )
 
         panel_layout.setContentsMargins(
@@ -518,9 +521,7 @@ class RemReaderWindow(QWidget):
             chapter_layout
         )
 
-        panel_layout.addWidget(
-            chapter_group
-        )
+        # Chapter and Voice groups are placed side-by-side below.
 
         # ====================================================
         # Voice Group
@@ -614,9 +615,8 @@ class RemReaderWindow(QWidget):
             voice_layout
         )
 
-        panel_layout.addWidget(
-            voice_group
-        )
+        # Voice, Chapters and Y/N Replacement are placed
+        # together in the left settings column below.
 
         # ====================================================
         # Y/N Replacement Group
@@ -698,9 +698,8 @@ class RemReaderWindow(QWidget):
             replace_layout
         )
 
-        panel_layout.addWidget(
-            replace_group
-        )
+        # Y/N Replacement and Other Options are placed
+        # side-by-side below.
 
         # ====================================================
         # Other Options Group
@@ -782,6 +781,38 @@ class RemReaderWindow(QWidget):
             self.section_break_mode
         )
 
+        # -------------------------
+        # Output format
+        # -------------------------
+
+        output_format_label = QLabel(
+            "Output format"
+        )
+
+        options_layout.addWidget(
+            output_format_label
+        )
+
+        self.output_format_select = QComboBox()
+
+        self.output_format_select.addItems(
+            [
+                "MP3",
+                "WAV",
+                "FLAC",
+                "M4A",
+                "OGG"
+            ]
+        )
+
+        self.output_format_select.setCurrentText(
+            "MP3"
+        )
+
+        options_layout.addWidget(
+            self.output_format_select
+        )
+
         self.debug_logs = QCheckBox(
             "Generate debug logs"
         )
@@ -798,8 +829,68 @@ class RemReaderWindow(QWidget):
             options_layout
         )
 
-        panel_layout.addWidget(
+        # -------------------------
+        # Main settings columns
+        # -------------------------
+
+        settings_layout = QHBoxLayout()
+
+        settings_layout.setSpacing(
+            12
+        )
+
+        # -------------------------
+        # Left column
+        # -------------------------
+
+        left_settings_layout = QVBoxLayout()
+
+        left_settings_layout.setSpacing(
+            10
+        )
+
+        left_settings_layout.addWidget(
+            chapter_group
+        )
+
+        left_settings_layout.addWidget(
+            voice_group
+        )
+
+        left_settings_layout.addWidget(
+            replace_group
+        )
+
+        left_settings_layout.addStretch()
+
+        # -------------------------
+        # Right column
+        # -------------------------
+
+        right_settings_layout = QVBoxLayout()
+
+        right_settings_layout.setSpacing(
+            10
+        )
+
+        right_settings_layout.addWidget(
             options_group
+        )
+
+        right_settings_layout.addStretch()
+
+        settings_layout.addLayout(
+            left_settings_layout,
+            1
+        )
+
+        settings_layout.addLayout(
+            right_settings_layout,
+            1
+        )
+
+        panel_layout.addLayout(
+            settings_layout
         )
 
         # ====================================================
@@ -1447,6 +1538,12 @@ class RemReaderWindow(QWidget):
             self.voice_select.currentText()
         )
 
+        output_format = (
+            self.output_format_select
+            .currentText()
+            .lower()
+        )
+
         input_path = (
             self.file_input.text()
         )
@@ -1490,6 +1587,7 @@ class RemReaderWindow(QWidget):
             output_folder=output_folder,
             options=options,
             voice=voice,
+            output_format=output_format,
             debug_enabled=self.debug_logs.isChecked()
         )
 

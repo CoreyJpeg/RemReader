@@ -17,6 +17,10 @@ from src.Chunker import (
     split_into_chunks
 )
 
+from src.AudioExporter import (
+    save_audio_file
+)
+
 
 # ============================================================
 # Debug Logging
@@ -189,6 +193,64 @@ def clean_filename(
     return name
 
 
+def clean_chapter_title(
+    title: str,
+    chapter_number: int
+) -> str:
+    """
+    Remove AO3's repeated chapter-number prefixes.
+
+    Examples:
+        "Chapter 1: Ch.1: Convenience Store Blues"
+        -> "Convenience Store Blues"
+
+        "Chapter 150: Bound by What Remains"
+        -> "Bound by What Remains"
+    """
+
+    cleaned = title.strip()
+
+    # AO3 may repeat chapter numbering more than once.
+    # Run several passes so:
+    #
+    # Chapter 1: Ch.1: Title
+    #
+    # becomes:
+    #
+    # Title
+    prefixes = [
+        rf"^\s*Chapter\s*{chapter_number}\s*[:.\-–—]*\s*",
+        rf"^\s*Ch\.?\s*{chapter_number}\s*[:.\-–—]*\s*",
+    ]
+
+    changed = True
+
+    while changed:
+        changed = False
+
+        for pattern in prefixes:
+            new_value = re.sub(
+                pattern,
+                "",
+                cleaned,
+                count=1,
+                flags=re.IGNORECASE
+            )
+
+            if new_value != cleaned:
+                cleaned = new_value.strip()
+                changed = True
+
+    cleaned = clean_filename(
+        cleaned
+    )
+
+    if not cleaned:
+        return f"Chapter {chapter_number}"
+
+    return cleaned
+
+
 # ============================================================
 # Story Loading
 # ============================================================
@@ -221,10 +283,12 @@ def generate_chapters(
     options: CleaningOptions,
     voice: str = "af_heart",
     progress_callback=None,
-    debug_enabled: bool = False
+    debug_enabled: bool = False,
+    output_format: str = "mp3"
 ):
     """
-    Generate multiple chapters as WAV files.
+    Generate multiple chapters and export them to the requested
+    audio format.
 
     Kokoro is loaded once and reused for every selected chapter.
     """
@@ -303,7 +367,27 @@ def generate_chapters(
         story_title
     )
 
+    output_format = (
+        output_format
+        .lower()
+        .strip()
+        .lstrip(".")
+    )
+
+    # Every fic/book gets its own output folder.
+    story_output_folder = (
+        output_folder
+        / story_title
+    )
+
+    story_output_folder.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
     _debug_log(log_file, f"Story title: {story_title}", debug_enabled)
+    _debug_log(log_file, f"Story output folder: {story_output_folder.resolve()}", debug_enabled)
+    _debug_log(log_file, f"Audio output format: {output_format}", debug_enabled)
     _debug_log(log_file, f"Detected chapters: {len(chapters)}", debug_enabled)
 
     # -------------------------
@@ -581,31 +665,38 @@ def generate_chapters(
         # Create output filename
         # -------------------------
 
-        chapter_title = clean_filename(
-            chapter["title"]
+        chapter_title = clean_chapter_title(
+            chapter["title"],
+            chapter_number
         )
 
         output_file = (
-            output_folder
+            story_output_folder
             / (
-                f"{story_title} - "
-                f"{chapter_title}.wav"
+                f"Chapter {chapter_number} - "
+                f"{chapter_title}."
+                f"{output_format}"
             )
         )
 
         # -------------------------
-        # Save completed chapter
+        # Save / export completed chapter
         # -------------------------
 
         _debug_log(
             log_file,
-            f"Chapter {chapter_number}: saving WAV to {output_file}",
+            (
+                f"Chapter {chapter_number}: "
+                f"exporting {output_format.upper()} to {output_file}"
+            ),
             debug_enabled
         )
 
-        tts.save_audio(
-            chapter_audio,
-            output_file
+        save_audio_file(
+            tts=tts,
+            audio=chapter_audio,
+            output_file=output_file,
+            output_format=output_format
         )
 
         output_files.append(

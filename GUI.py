@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.3.3"
 
 from PySide6.QtCore import (
     QObject,
@@ -52,6 +52,11 @@ from src.ChapterSelectionParser import (
     parse_chapter_selection
 )
 
+from src.InputManager import (
+    PARSER_AUTO,
+    SUPPORTED_PARSERS
+)
+
 
 # ============================================================
 # Story Loading Worker
@@ -64,11 +69,13 @@ class StoryLoaderWorker(QObject):
 
     def __init__(
         self,
-        file_path
+        file_path,
+        parser_mode=PARSER_AUTO
     ):
         super().__init__()
 
         self.file_path = file_path
+        self.parser_mode = parser_mode
 
 
     def run(self):
@@ -79,7 +86,8 @@ class StoryLoaderWorker(QObject):
         try:
 
             chapters = get_story_chapters(
-                self.file_path
+                self.file_path,
+                parser_mode=self.parser_mode
             )
 
             self.finished.emit(
@@ -122,6 +130,7 @@ class GenerationWorker(QObject):
         voice,
         output_format,
         cover_image=None,
+        parser_mode=PARSER_AUTO,
         debug_enabled=False
     ):
         super().__init__()
@@ -133,6 +142,7 @@ class GenerationWorker(QObject):
         self.voice = voice
         self.output_format = output_format
         self.cover_image = cover_image
+        self.parser_mode = parser_mode
         self.debug_enabled = debug_enabled
 
 
@@ -152,7 +162,8 @@ class GenerationWorker(QObject):
                 progress_callback=self.report_progress,
                 debug_enabled=self.debug_enabled,
                 output_format=self.output_format,
-                cover_image=self.cover_image
+                cover_image=self.cover_image,
+                parser_mode=self.parser_mode
             )
 
             self.finished.emit(
@@ -435,7 +446,7 @@ class RemReaderWindow(QWidget):
         self.file_input = QLineEdit()
 
         self.file_input.setPlaceholderText(
-            "Select an AO3 HTML file..."
+            "Select a story file..."
         )
 
         self.browse_button = QPushButton(
@@ -456,6 +467,38 @@ class RemReaderWindow(QWidget):
 
         input_layout.addLayout(
             file_layout
+        )
+
+        # -------------------------
+        # Input parser
+        # -------------------------
+        # Auto Detect is the normal user-facing path. The selector is
+        # deliberately kept here for now as the manual override; it can
+        # move into the full Advanced panel when that UI is introduced.
+
+        parser_layout = QHBoxLayout()
+
+        parser_layout.addWidget(
+            QLabel("Input parser")
+        )
+
+        self.parser_select = QComboBox()
+
+        self.parser_select.addItems(
+            SUPPORTED_PARSERS
+        )
+
+        self.parser_select.setCurrentText(
+            PARSER_AUTO
+        )
+
+        parser_layout.addWidget(
+            self.parser_select,
+            1
+        )
+
+        input_layout.addLayout(
+            parser_layout
         )
 
         self.chapter_info = QLabel(
@@ -674,7 +717,7 @@ class RemReaderWindow(QWidget):
         )
 
         self.name_input = QLineEdit(
-            "Corey"
+            "Y/N"
         )
 
         replace_layout.addWidget(
@@ -1339,9 +1382,16 @@ class RemReaderWindow(QWidget):
 
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select AO3 story",
+            "Select story",
             "",
-            "HTML Files (*.html);;All Files (*)"
+            (
+                "Story Files (*.html *.htm *.txt *.epub *.pdf);;"
+                "HTML Files (*.html *.htm);;"
+                "Text Files (*.txt);;"
+                "EPUB Files (*.epub);;"
+                "PDF Files (*.pdf);;"
+                "All Files (*)"
+            )
         )
 
         if not file_path:
@@ -1410,7 +1460,8 @@ class RemReaderWindow(QWidget):
         self.load_thread = QThread()
 
         self.load_worker = StoryLoaderWorker(
-            file_path
+            file_path,
+            parser_mode=self.parser_select.currentText()
         )
 
         self.load_worker.moveToThread(
@@ -1662,6 +1713,7 @@ class RemReaderWindow(QWidget):
             voice=voice,
             output_format=output_format,
             cover_image=cover_image,
+            parser_mode=self.parser_select.currentText(),
             debug_enabled=self.debug_logs.isChecked()
         )
 

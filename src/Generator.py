@@ -2,10 +2,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from src.AO3Parser import (
-    get_chapters,
-    get_story_title,
-    get_story_author
+from src.InputManager import (
+    PARSER_AUTO,
+    load_book
 )
 
 from src.TextCleaner import (
@@ -257,17 +256,26 @@ def clean_chapter_title(
 # ============================================================
 
 def get_story_chapters(
-    input_path: str | Path
+    input_path: str | Path,
+    parser_mode: str = PARSER_AUTO
 ):
     """
-    Load a story and return all detected chapters.
+    Load a story through InputManager and return chapters in the
+    dictionary shape currently expected by the GUI.
     """
 
-    chapters = get_chapters(
-        input_path
+    book = load_book(
+        input_path,
+        parser_mode=parser_mode
     )
 
-    return chapters
+    return [
+        {
+            "title": chapter.title,
+            "text": chapter.text
+        }
+        for chapter in book.chapters
+    ]
 
 
 # ============================================================
@@ -286,7 +294,8 @@ def generate_chapters(
     progress_callback=None,
     debug_enabled: bool = False,
     output_format: str = "mp3",
-    cover_image: str | Path | None = None
+    cover_image: str | Path | None = None,
+    parser_mode: str = PARSER_AUTO
 ):
     """
     Generate multiple chapters and export them to the requested
@@ -355,18 +364,21 @@ def generate_chapters(
     # Load story
     # -------------------------
 
-    chapters = get_chapters(
-        input_path
+    book = load_book(
+        input_path,
+        parser_mode=parser_mode
     )
 
-    # Get AO3 story metadata
-    story_title = get_story_title(
-        input_path
-    )
+    chapters = [
+        {
+            "title": chapter.title,
+            "text": chapter.text
+        }
+        for chapter in book.chapters
+    ]
 
-    story_author = get_story_author(
-        input_path
-    )
+    story_title = book.title
+    story_author = book.author
 
     # Make title safe for filenames
     story_title = clean_filename(
@@ -541,6 +553,31 @@ def generate_chapters(
         cleaned_text = clean_text(
             chapter["text"],
             options
+        )
+
+        # -------------------------
+        # Chapter announcement
+        # -------------------------
+        #
+        # Announce the chapter number and cleaned chapter title before
+        # the chapter body. This uses the same title cleanup as the
+        # output filename so AO3's repeated "Chapter X" prefixes are
+        # not spoken twice.
+
+        spoken_chapter_title = clean_chapter_title(
+            chapter["title"],
+            chapter_number
+        )
+
+        chapter_announcement = (
+            f"Chapter {chapter_number}. "
+            f"{spoken_chapter_title}."
+        )
+
+        cleaned_text = (
+            chapter_announcement
+            + "\n"
+            + cleaned_text
         )
 
         if debug_enabled:

@@ -37,7 +37,51 @@ def get_chapters(file_path: str):
         if content_element is None:
             continue
 
-        text = content_element.get_text("\n", strip=True)
+        # Extract each top-level block separately.
+        #
+        # Using get_text("\\n") on the whole chapter caused BeautifulSoup
+        # to insert line breaks around inline tags such as <em>, <b>, and
+        # <span>. For example:
+        #
+        #     I <Em>Love</Em> you
+        #
+        # could be broken into separate lines even though it is one sentence.
+        #
+        # Reading each paragraph/block with a SPACE separator keeps inline
+        # formatting together, while joining the blocks with newlines still
+        # preserves paragraph boundaries.
+        text_blocks = []
+
+        for element in content_element.children:
+
+            # Ignore plain whitespace between HTML tags.
+            if not getattr(element, "name", None):
+                plain_text = str(element).strip()
+
+                if plain_text:
+                    text_blocks.append(
+                        plain_text
+                    )
+
+                continue
+
+            # Horizontal rules contain no spoken text.
+            if element.name == "hr":
+                continue
+
+            block_text = element.get_text(
+                " ",
+                strip=True
+            )
+
+            if block_text:
+                text_blocks.append(
+                    block_text
+                )
+
+        text = "\n".join(
+            text_blocks
+        )
 
         results.append({
             "title": title,

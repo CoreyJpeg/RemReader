@@ -7,8 +7,15 @@ class CleaningOptions:
     read_author_notes: bool = True
     replace_yn: bool = True
     yn_name: str = "Corey"
-    announce_scene_changes: bool = True
-    scene_change_text: str = "Next scene"
+
+    # How author section / scene separators should be handled.
+    #
+    # Supported values:
+    #   "pause"    -> keep a special marker for Generator.py
+    #   "announce" -> speak the configured scene_change_text
+    #   "ignore"   -> remove the separator entirely
+    section_break_mode: str = "pause"
+    scene_change_text: str = "Scene change"
 
 
 def clean_text(text: str, options: CleaningOptions) -> str:
@@ -19,10 +26,14 @@ def clean_text(text: str, options: CleaningOptions) -> str:
     if options.replace_yn:
         text = replace_yn(text, options.yn_name)
 
-    # Handle scene separators
+    # Handle author section / scene separators.
+    #
+    # A pause is represented by a marker rather than blank lines because
+    # the whitespace cleanup below intentionally removes empty lines.
     text = replace_scene_separators(
         text,
-        options.announce_scene_changes
+        mode=options.section_break_mode,
+        scene_change_text=options.scene_change_text
     )
 
     # Remove obvious URLs
@@ -62,13 +73,54 @@ def replace_yn(text: str, name: str) -> str:
     return text
 
 
-def replace_scene_separators(text: str, announce: bool) -> str:
-    replacement = "\nNext scene.\n" if announce else "\n"
+# Special marker preserved through text cleaning.
+# Generator.py will later convert this marker into actual audio silence.
+SECTION_BREAK_MARKER = "[[REMREADER_SECTION_BREAK]]"
+
+
+def replace_scene_separators(
+    text: str,
+    mode: str = "pause",
+    scene_change_text: str = "Scene change"
+) -> str:
+    """
+    Convert author separators into one of three behaviours.
+
+    pause:
+        Preserve a RemReader marker so the Generator can insert a
+        real timed silence into the final audio.
+
+    announce:
+        Replace the separator with spoken words.
+
+    ignore:
+        Remove the separator completely.
+    """
+
+    mode = mode.lower().strip()
+
+    if mode == "pause":
+        replacement = f"\n{SECTION_BREAK_MARKER}\n"
+
+    elif mode == "announce":
+        replacement = f"\n{scene_change_text.strip()}.\n"
+
+    elif mode == "ignore":
+        replacement = "\n"
+
+    else:
+        raise ValueError(
+            f"Unknown section break mode: {mode}"
+        )
 
     # Things like:
     # — — —
     # -----
     # *****
+    # _____
+    #
+    # These patterns intentionally require three or more repeated
+    # separator characters so ordinary punctuation is left alone.
     patterns = [
         r"(?:—\s*){3,}",
         r"-{3,}",
@@ -77,7 +129,11 @@ def replace_scene_separators(text: str, announce: bool) -> str:
     ]
 
     for pattern in patterns:
-        text = re.sub(pattern, replacement, text)
+        text = re.sub(
+            pattern,
+            replacement,
+            text
+        )
 
     return text
 

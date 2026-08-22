@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from pathlib import Path
 
 from src.AO3Parser import (
@@ -8,12 +9,67 @@ from src.AO3Parser import (
 
 from src.TextCleaner import (
     clean_text,
-    CleaningOptions
+    CleaningOptions,
+    SECTION_BREAK_MARKER
 )
 
 from src.Chunker import (
     split_into_chunks
 )
+
+
+# ============================================================
+# Debug Logging
+# ============================================================
+
+def _write_debug_file(
+    file_path: Path,
+    text: str
+):
+    """Write a UTF-8 debug file."""
+
+    file_path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    file_path.write_text(
+        text,
+        encoding="utf-8"
+    )
+
+
+def _debug_log(
+    log_file: Path | None,
+    message: str,
+    enabled: bool
+):
+    """Write a timestamped message to the log and mirror it to CMD."""
+
+    if not enabled:
+        return
+
+    timestamp = datetime.now().strftime(
+        "%H:%M:%S"
+    )
+
+    line = f"[{timestamp}] {message}"
+
+    print(
+        line,
+        flush=True
+    )
+
+    if log_file is not None:
+
+        with log_file.open(
+            "a",
+            encoding="utf-8"
+        ) as file:
+
+            file.write(
+                line + "\n"
+            )
 
 
 # ============================================================
@@ -155,13 +211,17 @@ def get_story_chapters(
 # Chapter Generation
 # ============================================================
 
+# Length of the real audio silence inserted for author section breaks.
+SECTION_BREAK_PAUSE_SECONDS = 1.75
+
 def generate_chapters(
     input_path: str | Path,
     chapter_numbers: list[int],
     output_folder: str | Path,
     options: CleaningOptions,
     voice: str = "af_heart",
-    progress_callback=None
+    progress_callback=None,
+    debug_enabled: bool = False
 ):
     """
     Generate multiple chapters as WAV files.
@@ -191,6 +251,41 @@ def generate_chapters(
     )
 
     # -------------------------
+    # Debug logging setup
+    # -------------------------
+
+    debug_run_folder = None
+    log_file = None
+
+    if debug_enabled:
+
+        run_name = datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S"
+        )
+
+        debug_run_folder = (
+            output_folder
+            / "debug"
+            / run_name
+        )
+
+        debug_run_folder.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        log_file = (
+            debug_run_folder
+            / "generation.log"
+        )
+
+        _debug_log(log_file, "RemReader v0.1.0-alpha debug session started.", True)
+        _debug_log(log_file, f"Input file: {input_path}", True)
+        _debug_log(log_file, f"Output folder: {output_folder.resolve()}", True)
+        _debug_log(log_file, f"Selected chapters: {chapter_numbers}", True)
+        _debug_log(log_file, f"Voice: {voice}", True)
+
+    # -------------------------
     # Load story
     # -------------------------
 
@@ -207,6 +302,9 @@ def generate_chapters(
     story_title = clean_filename(
         story_title
     )
+
+    _debug_log(log_file, f"Story title: {story_title}", debug_enabled)
+    _debug_log(log_file, f"Detected chapters: {len(chapters)}", debug_enabled)
 
     # -------------------------
     # Check selected chapters
@@ -240,9 +338,13 @@ def generate_chapters(
     # Load / reuse Kokoro
     # -------------------------
 
+    _debug_log(log_file, "Loading / reusing Kokoro TTS engine...", debug_enabled)
+
     tts = get_tts_engine(
         voice
     )
+
+    _debug_log(log_file, "TTS engine ready.", debug_enabled)
 
     output_files = []
 
@@ -267,6 +369,39 @@ def generate_chapters(
         )
 
         # -------------------------
+        # Debug: raw extracted text
+        # -------------------------
+
+        chapter_debug_folder = None
+
+        if debug_enabled:
+
+            chapter_debug_name = clean_filename(
+                f"Chapter {chapter_number} - {chapter['title']}"
+            )
+
+            chapter_debug_folder = (
+                debug_run_folder
+                / chapter_debug_name
+            )
+
+            chapter_debug_folder.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            _write_debug_file(
+                chapter_debug_folder / "01_raw_extracted.txt",
+                chapter["text"]
+            )
+
+            _debug_log(
+                log_file,
+                f"Chapter {chapter_number}: raw text saved ({len(chapter['text'])} characters).",
+                True
+            )
+
+        # -------------------------
         # Clean chapter text
         # -------------------------
 
@@ -275,19 +410,75 @@ def generate_chapters(
             options
         )
 
+        if debug_enabled:
+
+            _write_debug_file(
+                chapter_debug_folder / "02_cleaned.txt",
+                cleaned_text
+            )
+
+            _debug_log(
+                log_file,
+                f"Chapter {chapter_number}: cleaned text saved ({len(cleaned_text)} characters).",
+                True
+            )
+
         # -------------------------
         # Split into TTS chunks
         # -------------------------
 
-        chunks = split_into_chunks(
-            cleaned_text,
-            max_length=500
-        )
+        # Split around section-break markers first so the marker is
+        # never sent to Kokoro. Normal text is then chunked as usual.
+        chunks = []
+
+        for section_index, section in enumerate(
+            cleaned_text.split(SECTION_BREAK_MARKER)
+        ):
+            section = section.strip()
+
+            if section:
+                chunks.extend(
+                    split_into_chunks(
+                        section,
+                        max_length=500
+                    )
+                )
+
+            # Keep a pause token between sections, but never after the
+            # final section.
+            if (
+                section_index
+                < len(cleaned_text.split(SECTION_BREAK_MARKER)) - 1
+            ):
+                chunks.append(
+                    SECTION_BREAK_MARKER
+                )
 
         print(
             f"Chapter {chapter_number} "
-            f"split into {len(chunks)} chunks."
+            f"split into {len(chunks)} chunks / section breaks."
         )
+
+        if debug_enabled:
+
+            chunk_debug_text = "\n\n".join(
+                f"===== CHUNK {index}/{len(chunks)} =====\n{chunk}"
+                for index, chunk in enumerate(
+                    chunks,
+                    start=1
+                )
+            )
+
+            _write_debug_file(
+                chapter_debug_folder / "03_tts_chunks.txt",
+                chunk_debug_text
+            )
+
+            _debug_log(
+                log_file,
+                f"Chapter {chapter_number}: split into {len(chunks)} TTS chunks.",
+                True
+            )
 
         if not chunks:
             raise RuntimeError(
@@ -311,9 +502,52 @@ def generate_chapters(
                 f"chunk {chunk_number}/{len(chunks)}..."
             )
 
-            audio = tts.generate_audio(
-                chunk
+            _debug_log(
+                log_file,
+                f"Chapter {chapter_number}: generating chunk {chunk_number}/{len(chunks)} ({len(chunk)} characters).",
+                debug_enabled
             )
+
+            if chunk == SECTION_BREAK_MARKER:
+
+                # Insert real silence rather than asking Kokoro to
+                # interpret punctuation as a pause.
+                sample_rate = getattr(
+                    tts,
+                    "sample_rate",
+                    24000
+                )
+
+                audio = np.zeros(
+                    int(
+                        sample_rate
+                        * SECTION_BREAK_PAUSE_SECONDS
+                    ),
+                    dtype=np.float32
+                )
+
+                _debug_log(
+                    log_file,
+                    (
+                        f"Chapter {chapter_number}: "
+                        f"section break {chunk_number}/{len(chunks)} - "
+                        f"inserted {SECTION_BREAK_PAUSE_SECONDS:.2f}s silence "
+                        f"at {sample_rate} Hz."
+                    ),
+                    debug_enabled
+                )
+
+            else:
+
+                audio = tts.generate_audio(
+                    chunk
+                )
+
+                _debug_log(
+                    log_file,
+                    f"Chapter {chapter_number}: chunk {chunk_number} generated ({len(audio)} samples).",
+                    debug_enabled
+                )
 
             audio_chunks.append(
                 audio
@@ -332,6 +566,12 @@ def generate_chapters(
         # -------------------------
         # Combine audio chunks
         # -------------------------
+
+        _debug_log(
+            log_file,
+            f"Chapter {chapter_number}: combining {len(audio_chunks)} audio chunks.",
+            debug_enabled
+        )
 
         chapter_audio = np.concatenate(
             audio_chunks
@@ -357,6 +597,12 @@ def generate_chapters(
         # Save completed chapter
         # -------------------------
 
+        _debug_log(
+            log_file,
+            f"Chapter {chapter_number}: saving WAV to {output_file}",
+            debug_enabled
+        )
+
         tts.save_audio(
             chapter_audio,
             output_file
@@ -371,5 +617,11 @@ def generate_chapters(
             f"{chapter_number}: "
             f"{output_file}"
         )
+
+    _debug_log(
+        log_file,
+        f"Generation complete. Created {len(output_files)} chapter(s).",
+        debug_enabled
+    )
 
     return output_files

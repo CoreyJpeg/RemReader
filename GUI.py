@@ -5,6 +5,9 @@ import time
 
 from pathlib import Path
 
+
+APP_VERSION = "0.2.0"
+
 from PySide6.QtCore import (
     QObject,
     QThread,
@@ -116,7 +119,8 @@ class GenerationWorker(QObject):
         chapter_numbers,
         output_folder,
         options,
-        voice
+        voice,
+        debug_enabled=False
     ):
         super().__init__()
 
@@ -125,6 +129,7 @@ class GenerationWorker(QObject):
         self.output_folder = output_folder
         self.options = options
         self.voice = voice
+        self.debug_enabled = debug_enabled
 
 
     def run(self):
@@ -140,7 +145,8 @@ class GenerationWorker(QObject):
                 output_folder=self.output_folder,
                 options=self.options,
                 voice=self.voice,
-                progress_callback=self.report_progress
+                progress_callback=self.report_progress,
+                debug_enabled=self.debug_enabled
             )
 
             self.finished.emit(
@@ -226,7 +232,7 @@ class RemReaderWindow(QWidget):
         super().__init__()
 
         self.setWindowTitle(
-            "RemReader"
+            f"RemReader v{APP_VERSION}"
         )
 
 
@@ -744,16 +750,48 @@ class RemReaderWindow(QWidget):
             self.author_notes
         )
 
-        self.scene_changes = QCheckBox(
-            "Announce scene changes"
-        )
+        # -------------------------
+        # Section break handling
+        # -------------------------
 
-        self.scene_changes.setChecked(
-            True
+        section_break_label = QLabel(
+            "Section breaks"
         )
 
         options_layout.addWidget(
-            self.scene_changes
+            section_break_label
+        )
+
+        self.section_break_mode = QComboBox()
+
+        self.section_break_mode.addItems(
+            [
+                "Pause",
+                "Say \"Scene Change\"",
+                "Ignore"
+            ]
+        )
+
+        # Pause is the new default because many authors use separators
+        # for pacing rather than a literal change of scene.
+        self.section_break_mode.setCurrentText(
+            "Pause"
+        )
+
+        options_layout.addWidget(
+            self.section_break_mode
+        )
+
+        self.debug_logs = QCheckBox(
+            "Generate debug logs"
+        )
+
+        self.debug_logs.setChecked(
+            False
+        )
+
+        options_layout.addWidget(
+            self.debug_logs
         )
 
         options_group.setLayout(
@@ -877,6 +915,29 @@ class RemReaderWindow(QWidget):
 
         panel_layout.addWidget(
             generate_group
+        )
+
+        # -------------------------
+        # Version label
+        # -------------------------
+
+        version_layout = QHBoxLayout()
+        version_layout.addStretch()
+
+        self.version_label = QLabel(
+            f"v{APP_VERSION}"
+        )
+
+        self.version_label.setStyleSheet(
+            "color: rgba(255, 255, 255, 110); font-size: 11px;"
+        )
+
+        version_layout.addWidget(
+            self.version_label
+        )
+
+        main_layout.addLayout(
+            version_layout
         )
 
         # -------------------------
@@ -1353,6 +1414,18 @@ class RemReaderWindow(QWidget):
         # Text cleaning options
         # -------------------------
 
+        # Translate the friendly GUI label into the internal
+        # TextCleaner section-break mode.
+        section_break_modes = {
+            "Pause": "pause",
+            "Say \"Scene Change\"": "announce",
+            "Ignore": "ignore"
+        }
+
+        section_break_mode = section_break_modes[
+            self.section_break_mode.currentText()
+        ]
+
         options = CleaningOptions(
             read_author_notes=
                 self.author_notes.isChecked(),
@@ -1363,11 +1436,11 @@ class RemReaderWindow(QWidget):
             yn_name=
                 self.name_input.text(),
 
-            announce_scene_changes=
-                self.scene_changes.isChecked(),
+            section_break_mode=
+                section_break_mode,
 
             scene_change_text=
-                "Next scene"
+                "Scene change"
         )
 
         voice = (
@@ -1416,7 +1489,8 @@ class RemReaderWindow(QWidget):
             chapter_numbers=chapter_numbers,
             output_folder=output_folder,
             options=options,
-            voice=voice
+            voice=voice,
+            debug_enabled=self.debug_logs.isChecked()
         )
 
         self.generation_worker.moveToThread(
